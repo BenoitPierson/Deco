@@ -1,28 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # DECO SCRIPT :
-# - Version : 01 / 04 / 2024 (1st April 2024)
-# - Author : Benoit Pierson
-# - Mail : benoitmarc.pierson@gmail.com
-
-# ![screen_pic.jpg](attachment:screen_pic.jpg)
-
-# # SCOPE : 
-# 
-# - The aim of this work is to give an overview of the methodology used by a diving computer, not to replace it or to plan a dive !
-# 
-# - This is a non-certifies work. This work has not been checked properly (no peer review process) as it has to be for a real usage
-# 
-# - This notebook is useful if you want to visualize tissues saturations along time for a given dive (see at the end of this notebook)
-
-# # HYPOTHESIS : 
-# - We consider Buhlmann ZHL16-C model for M-values and half-times of 16 tissues
-# - We let the user choose the proper gradient factor he wants to use
-# - For the first tissue, we consider 1b
-# - Speed at descent is 20m/s
-# - Speed ascent is 10m/s to the first deco stop, 3m/s between deco stops, 3m/s to the surface (high considering common used values ~ 1m/s in last meters of ascent
-
 # In[12]:
 
 
@@ -35,8 +13,6 @@ import seaborn as sns
 
 sns.set_theme()
 
-
-# # 1 - Definition of constants
 
 # In[13]:
 
@@ -53,8 +29,6 @@ p_water_vapor = 0.0627 * 1E5 # Water vapor pressure in lungs [Pa]
 p_atm_sea_level = 101325.0 # Ambiant pressure at sea level [Pa]
 g = 9.81 # gravity [m*s**-2]
 
-
-# # 2 - Definition of functions
 
 # In[14]:
 
@@ -379,78 +353,32 @@ def calculate_cpt_saturation_with_deco_mix(diving_profile, O2Part_adm = 1.6):
     
 
 
-# # 3 - Diving deco profile calculation
-
 # In[15]:
 
 
-des_speed = 1 / 60 #20 / 60 # unit : m/sec
-asc_speed = 1.5 / 60 #10 / 60 # unit : m/sec
-asc_speed_between_stops = 1.5 / 60 # unit : m/sec MUST BE LOWER THAN (OR EQUAL) asc_speed !!!!!
-N2Part = 0.79 # unit : %
-O2Part_Deco = 1.0 # unit : % O2 in deco mix
-GF_low = 0.9 # unit : %
-GF_high = 0.9 # unit : %
-
 M_values = read_M_values_from_file("Buhlmann_Zh-L16C_M-values.csv")
 M_values_basis = M_values
-diving_profile = define_dive_depth_profile(depth = 20, time = 120)
-Pamb_max = (p_atm_sea_level + (rho_water * g * diving_profile['Profondeur [m]'].max()))/1E5
-M_values = calculate_GF_lines(GF_low, GF_high, Pamb_max, M_values)
-diving_profile = calculate_cpt_saturation_along_dive(diving_profile)
-possible_deco_stops = [*range(0, 1 + int(np.floor(diving_profile['Profondeur [m]'].max())), 3)]
-deco_profile = calculate_deco_profile(diving_profile, ascent_speed = asc_speed, ascent_speed_between_stops = asc_speed_between_stops)
-deco_profile.append({'DECO_DEPTH [m]': 0., 'DECO_TIME [min]': 0, 'SPEED_ASCENT [m/sec]': asc_speed_between_stops})
-depth_before_ascent = diving_profile['Profondeur [m]'].iloc[-1]
-diving_profile = add_deco_to_depth_profile(diving_profile, deco_profile)
+N2Part = 0.79 # unit : %
+
+des_speed = 240 / 60 # unit : m/sec
+asc_speed = 240 / 60 # unit : m/sec
+diving_profile = define_dive_depth_profile(depth = 240, time = 0.5)
+
+depth = diving_profile['Profondeur [m]'].values[-1]
+time = diving_profile['Temps [sec]'].values[-1]
+timestep = diving_profile['Temps [sec]'].values[-1] - diving_profile['Temps [sec]'].values[-2]
+
+while (depth > 0.001):
+    depth = depth - asc_speed * timestep.astype('timedelta64[s]').astype(np.int32)
+    time = time + timestep
+    diving_profile = diving_profile.append({'Temps [sec]' : time, 'Profondeur [m]' : depth, 'Phase' : 'Ascent'}, ignore_index = True)
+
 diving_profile = calculate_cpt_saturation_along_dive(diving_profile)
 diving_profile_post_dive = calculate_cpt_saturation_after_dive(diving_profile, time_after_dive_min = 15)
 diving_profile = pd.concat([diving_profile, diving_profile_post_dive], ignore_index = True)
-diving_profile = calculate_cpt_saturation_with_deco_mix(diving_profile, O2Part_adm = 2.2)
 
-
-# In[16]:
-
-
-for deco_stop in deco_profile:
-    print(deco_stop)
-
-
-# In[17]:
-
-
-total_time_to_surface(depth_before_ascent, deco_profile)
-
-
-# # 4 - Diving profile
 
 # In[18]:
-
-
-fig, ax = plt.subplots(1, 1, figsize = (12, 7))
-ax.plot(diving_profile['Temps [sec]'], -diving_profile['Profondeur [m]'], color = 'black', linewidth = 4)
-xticks = ax.get_xticklabels(minor=False, which=None)
-ax.set_xticklabels(diving_profile['Temps [sec]'], rotation = 45)
-ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-
-for deco_stop in deco_profile:
-    depth = deco_stop['DECO_DEPTH [m]']
-    time_at_stop = deco_stop['DECO_TIME [min]']
-    if (depth == 0.): break    
-    dir_cpt = deco_stop['DIRECTING CPT']
-    deco_time = diving_profile.loc[(diving_profile['Profondeur [m]'] >= (depth * 0.99)) & (diving_profile['Profondeur [m]'] <= (depth * 1.01)), "Temps [sec]"].tail(1).values[0]
-    txt = " " + str(depth) + ' m - '+ str(time_at_stop) + ' min' + ' - cpt n°' + str(dir_cpt) 
-    ax.text(deco_time, -depth - 0.5, txt)
-
-plt.title('DEPTH-DIVING PROFILE', fontsize = 14)
-plt.xlabel("TIME\n[ hh:mm:ss ]", fontsize = 12)
-plt.ylabel("DEPTH [m]", fontsize = 12)
-plt.show()
-
-
-# # 5 - Tissues saturation along time
-
-# In[22]:
 
 
 diving_profile['Pamb'] = (p_atm_sea_level + (diving_profile['Profondeur [m]'] * rho_water * g)) / 1E5    
@@ -462,296 +390,38 @@ for cpt in cpts:
     col_name = "pN2_cpt_" + cpt + " [bar]"
     M0 = M_values_basis[cpt]['M0']
     M_slope = M_values_basis[cpt]['M_Slope']
-    x = [i for i in range(1, 8)]
+    x = [i for i in range(1, 100)]
     M_line = [(p - 1) * M_slope + M0 for p in x]
-    M0_gf = M_values[cpt]['M0']
-    M_slope_gf = M_values[cpt]['M_Slope']
-    GF_line = [(p - 1) * M_slope_gf + M0_gf for p in x]
     axs[i, 0].plot(x, M_line, color = 'red', linewidth = 3, label = "M-value line")
-    axs[i, 0].plot(x, GF_line, color = 'red', linewidth = 3, linestyle = 'dotted', label = "GF line")   
-    axs[i, 0].plot([1., 1.], [0., 7.], linestyle = '--', color = 'black', label = "Surface")
+    axs[i, 0].plot([1., 1.], [0., 100.], linestyle = '--', color = 'black', label = "Surface")
     axs[i, 0].plot(diving_profile['Pamb'], diving_profile[col_name], color = 'blue', label = "Deco profile")
-    axs[i, 0].plot(diving_profile['Pamb'], diving_profile["pN2_cpt_" + cpt + " [bar]_deco"], color = 'green', linestyle = 'dotted', label = "Deco profile with deco mix - O2 : " + str(np.round(O2Part_Deco * 100)) + " %")
     axs[i, 0].set_xlabel('Ambiant pressure [bar]')
     axs[i, 0].set_ylabel('Inert gas tension [bar]')
-    axs[i, 0].set_xlim([0., 7.])
-    axs[i, 0].set_ylim([0., 7.])
-    axs[i, 0].plot([0., 7.], [0., 7.], color = 'black', linestyle = '--', linewidth = 2)
-    axs[i, 0].fill_between(x, GF_line, 7., color = 'red', alpha = 0.2)
-    axs[i, 0].fill_between(x, M_line, 7., color = 'red', alpha = 0.3)
+    axs[i, 0].set_xlim([0., 30.])
+    axs[i, 0].set_ylim([0., 30.])
+    axs[i, 0].plot([0., 100.], [0., 100.], color = 'black', linestyle = '--', linewidth = 2)
+    axs[i, 0].fill_between(x, M_line, 100., color = 'red', alpha = 0.3)
     axs[i, 0].set_title("TISSUE " + cpt.upper(), fontsize = 18)
     ttl = axs[i, 0].title
     ttl.set_position([1.1, 1.2])
     axs[i, 0].legend()
     
     Pamb_max = diving_profile['Pamb'].max()
-    x1 = np.array([Pamb_max, Pamb_max])
-    x2 = np.array([1+((Pamb_max-M0)/M_slope), Pamb_max])
-    axs[i, 0].plot([x1[0], x2[0]], [x1[1], x2[1]], color = 'black', linewidth = 3, marker = '|', markersize = 10, markeredgewidth = 5)
-    for k in range(0, 11, 1):
-        x1_marker = x1 + (x2 - x1) * (k/10)
-        if (k%2 == 0):
-            axs[i, 0].scatter([x1_marker[0]], [x1_marker[1]], marker = '|', color = 'black', s = 50)
-            axs[i, 0].text(x1_marker[0], x1_marker[1] + 0.25, str(k*10) + "%", fontsize = 10, rotation = 45)
-        else:
-            axs[i, 0].scatter([x1_marker[0]], [x1_marker[1]], marker = '|', color = 'black', s = 30)
-
-    x1 = np.array([1., 1.])
-    x2 = np.array([1, M0])
-    axs[i, 0].plot([x1[0], x2[0]], [x1[1], x2[1]], color = 'black', linewidth = 3, marker = '_', markersize = 10, markeredgewidth = 5)
-    for z in range(0, 11, 1):
-        x1_marker = x1 + (x2 - x1) * (z/10)
-        if (z%2 == 0):
-            axs[i, 0].scatter([x1_marker[0]], [x1_marker[1]], marker = '_', color = 'black', s = 50)
-            axs[i, 0].text(x1_marker[0] - 0.75, x1_marker[1], str(z*10) + "%", fontsize = 10)        
-        else:
-            axs[i, 0].scatter([x1_marker[0]], [x1_marker[1]], marker = '_', color = 'black', s = 30)
        
     M_val_lim = (diving_profile['Pamb'] - 1.) * M_slope + M0
-    M_val_lim_gf = (diving_profile['Pamb'] - 1.) * M_slope_gf + M0_gf
     axs[i, 1].plot(diving_profile['Temps [sec]'], M_val_lim, color = 'red', linewidth = 3, label = "Max admissible inert gas tension")
-    axs[i, 1].plot(diving_profile['Temps [sec]'], M_val_lim_gf, color = 'red', linewidth = 3, linestyle = 'dotted', label = "Max admissible inert gas tension - GF")
     axs[i, 1].plot(diving_profile['Temps [sec]'], diving_profile['Pamb'], color = 'black', label = "Ambiant pressure")
     axs[i, 1].plot(diving_profile['Temps [sec]'], diving_profile[col_name], color = 'blue', label = "Inert gas tension")
-    axs[i, 1].plot(diving_profile['Temps [sec]'], diving_profile["pN2_cpt_" + cpt + " [bar]_deco"], color = 'green', linestyle = 'dotted', label = "Inert gas tension with deco mix - O2 : " + str(np.round(O2Part_Deco * 100, 0)) + " %")
     axs[i, 1].set_xticklabels(diving_profile['Temps [sec]'], rotation = 30)
     axs[i, 1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-    axs[i, 1].fill_between(diving_profile['Temps [sec]'], M_val_lim_gf, 100., color = 'red', alpha = 0.2)
     axs[i, 1].fill_between(diving_profile['Temps [sec]'], M_val_lim, 100., color = 'red', alpha = 0.3)
     axs[i, 1].set_xlabel('Time [hh:mm:ss]')
     axs[i, 1].set_ylabel('Pressure [bar]')
-    axs[i, 1].set_ylim([0., 7.])
+    axs[i, 1].set_ylim([0., 30.])
     axs[i, 1].legend()   
     i += 1
 
-plt.savefig("deco_profile.pdf")
-
-
-# In[23]:
-
-
-"""
-plt.figure(figsize = (10, 10))
-x = [*np.arange(1.0, 7.0, 0.2)]
-
-for cpt in M_values_basis.keys():
-    y = [(i-1.) * M_values_basis[cpt]['M_Slope'] + M_values_basis[cpt]['M0'] for i in x]
-    plt.plot(x, y, label = 'Cpt n°' + cpt)
-
-plt.plot([1., 1.], [0., 7.], label = "Surface pressure", linestyle = '--', color = 'black', linewidth = 3)
-plt.plot([0., 7.], [0., 7.], label = "Ambiant pressure line", linestyle = 'dotted', color = 'black', linewidth = 3)
-plt.legend()
-plt.xlabel('PRESSURE\n[bar]', fontsize = 14)
-plt.ylabel('INERT GAS TENSION\n[bar]', fontsize = 14)
-plt.title('M-VALUES LINES', fontsize = 18)
-plt.xlim([0, 7])
-plt.ylim([0, 7])
-plt.show()
-"""
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
+plt.savefig("saturation_profile_240m.pdf")
 
 
 # In[ ]:
