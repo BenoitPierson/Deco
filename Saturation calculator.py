@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[12]:
+# In[1]:
 
 
 import os
@@ -14,7 +14,7 @@ import seaborn as sns
 sns.set_theme()
 
 
-# In[13]:
+# In[2]:
 
 
 """
@@ -30,7 +30,7 @@ p_atm_sea_level = 101325.0 # Ambiant pressure at sea level [Pa]
 g = 9.81 # gravity [m*s**-2]
 
 
-# In[14]:
+# In[3]:
 
 
 def read_M_values_from_file(file_path):
@@ -353,7 +353,7 @@ def calculate_cpt_saturation_with_deco_mix(diving_profile, O2Part_adm = 1.6):
     
 
 
-# In[15]:
+# In[8]:
 
 
 M_values = read_M_values_from_file("Buhlmann_Zh-L16C_M-values.csv")
@@ -368,17 +368,25 @@ depth = diving_profile['Profondeur [m]'].values[-1]
 time = diving_profile['Temps [sec]'].values[-1]
 timestep = diving_profile['Temps [sec]'].values[-1] - diving_profile['Temps [sec]'].values[-2]
 
+depths = []
+times = []
+
 while (depth > 0.001):
     depth = depth - asc_speed * timestep.astype('timedelta64[s]').astype(np.int32)
     time = time + timestep
-    diving_profile = diving_profile.append({'Temps [sec]' : time, 'Profondeur [m]' : depth, 'Phase' : 'Ascent'}, ignore_index = True)
+    depths.append(depth)
+    times.append(time)
+    
+phases = ["Ascent" for i in range(len(times))]    
+diving_profile_asc = pd.DataFrame({'Temps [sec]' : times, 'Profondeur [m]' : depths, 'Phase' : phases})
 
+diving_profile = pd.concat([diving_profile, diving_profile_asc], ignore_index = True)
 diving_profile = calculate_cpt_saturation_along_dive(diving_profile)
 diving_profile_post_dive = calculate_cpt_saturation_after_dive(diving_profile, time_after_dive_min = 15)
 diving_profile = pd.concat([diving_profile, diving_profile_post_dive], ignore_index = True)
 
 
-# In[18]:
+# In[9]:
 
 
 diving_profile['Pamb'] = (p_atm_sea_level + (diving_profile['Profondeur [m]'] * rho_water * g)) / 1E5    
@@ -422,6 +430,18 @@ for cpt in cpts:
     i += 1
 
 plt.savefig("saturation_profile_240m.pdf")
+
+
+# In[ ]:
+
+
+
+
+
+# In[10]:
+
+
+
 
 
 # In[ ]:
